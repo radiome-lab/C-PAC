@@ -3,7 +3,7 @@ import yaml
 import json
 
 
-def bids_decode_fname(file_path, dbg=False):
+def bids_decode_fname(file_path, dbg=False, raise_error=True):
     import re
 
     f_dict = {}
@@ -50,6 +50,7 @@ def bids_decode_fname(file_path, dbg=False):
     fname = fname.split(".")[0]
     # convert the filename string into a dictionary to pull out the other
     # key value pairs
+
     for key_val_pair in fname.split("_"):
         # if the chunk has the shape key-val store key: val in f_dict
         if "-" in key_val_pair:
@@ -58,14 +59,29 @@ def bids_decode_fname(file_path, dbg=False):
         else:
             f_dict["scantype"] = key_val_pair.split(".")[0]
 
-    if not f_dict["scantype"]:
-        raise ValueError("Filename (%s) does not appear to contain" % (fname) +
-                         " scan type, does it conform to the BIDS format?")
-
-    if 'bold' in f_dict["scantype"] and not f_dict["task"]:
-        raise ValueError("Filename (%s) is a BOLD file, but " % (fname) +
-                         "doesn't contain a task, does it conform to the" +
-                         " BIDS format?")
+    if "scantype" not in f_dict:
+        msg = "Filename ({0}) does not appear to contain" \
+              " scan type, does it conform to the BIDS format?".format(fname)
+        if raise_error:
+            raise ValueError(msg)
+        else:
+            print(msg)
+    elif not f_dict["scantype"]:
+        msg = "Filename ({0}) does not appear to contain" \
+              " scan type, does it conform to the BIDS format?".format(fname)
+        if raise_error:
+            raise ValueError(msg)
+        else:
+            print(msg)
+    else:
+        if 'bold' in f_dict["scantype"] and not f_dict["task"]:
+            msg = "Filename ({0}) is a BOLD file, but " \
+                  "doesn't contain a task, does it conform to the" \
+                  " BIDS format?".format(fname)
+            if raise_error:
+                raise ValueError(msg)
+            else:
+                print(msg)
 
     return f_dict
 
@@ -137,7 +153,7 @@ def bids_retrieve_params(bids_config_dict, f_dict, dbg=False):
     return params
 
 
-def bids_parse_sidecar(config_dict, dbg=False):
+def bids_parse_sidecar(config_dict, dbg=False, raise_error=True):
     # type: (dict, bool) -> dict
     """
     Uses the BIDS principle of inheritance to build a data structure that
@@ -188,7 +204,7 @@ def bids_parse_sidecar(config_dict, dbg=False):
             print("processing %s" % (cp))
 
         # decode the filepath into its various components as defined by  BIDS
-        f_dict = bids_decode_fname(cp)
+        f_dict = bids_decode_fname(cp, raise_error=raise_error)
 
         # handling inheritance is a complete pain, we will try to handle it by
         # build the key from the bottom up, starting with the most
@@ -250,9 +266,6 @@ def gen_bids_outputs_sublist(base_path, paths_list, key_list, creds_path):
                  "movement_parameters", "motion_correct"]
     top_keys = list(set(key_list) - set(func_keys))
     bot_keys = list(set(key_list).intersection(func_keys))
-
-    print(top_keys)
-    print(bot_keys)
 
     subjdict = {}
 
@@ -322,7 +335,8 @@ def gen_bids_outputs_sublist(base_path, paths_list, key_list, creds_path):
     return sublist
 
 
-def bids_gen_cpac_sublist(bids_dir, paths_list, config_dict, creds_path, dbg=False):
+def bids_gen_cpac_sublist(bids_dir, paths_list, config_dict, creds_path, dbg=False,
+                          raise_error=True):
     """
     Generates a CPAC formatted subject list from information contained in a
     BIDS formatted set of data.
@@ -358,7 +372,7 @@ def bids_gen_cpac_sublist(bids_dir, paths_list, config_dict, creds_path, dbg=Fal
     # otherwise parse the information in the sidecar json files into a dict
     # we can use to extract data for our nifti files
     if config_dict:
-        bids_config_dict = bids_parse_sidecar(config_dict)
+        bids_config_dict = bids_parse_sidecar(config_dict, raise_error=raise_error)
 
     subdict = {}
 
@@ -368,7 +382,7 @@ def bids_gen_cpac_sublist(bids_dir, paths_list, config_dict, creds_path, dbg=Fal
 
         if f.endswith(".nii") or f.endswith(".nii.gz"):
 
-            f_dict = bids_decode_fname(p)
+            f_dict = bids_decode_fname(p, raise_error=raise_error)
 
             if config_dict:
                 t_params = bids_retrieve_params(bids_config_dict,
@@ -464,7 +478,6 @@ def bids_gen_cpac_sublist(bids_dir, paths_list, config_dict, creds_path, dbg=Fal
                                 f_dict["ses"]
                             ]["fmap"]["epi_{0}".format(pe_dir)] = task_info
 
-
     sublist = []
     for ksub, sub in subdict.items():
         for kses, ses in sub.items():
@@ -497,7 +510,7 @@ def collect_bids_files_configs(bids_dir, aws_input_creds=''):
     file_paths = []
     config_dict = {}
 
-    suffixes = ['T1w', 'bold', 'acq-fMRI_epi', 'phasediff', 'magnitude',
+    suffixes = ['T1w', 'bold', '_epi', 'phasediff', 'magnitude',
                 'magnitude1', 'magnitude2']
 
     if bids_dir.lower().startswith("s3://"):
@@ -514,7 +527,7 @@ def collect_bids_files_configs(bids_dir, aws_input_creds=''):
         from indi_aws import fetch_creds
         bucket = fetch_creds.return_bucket(aws_input_creds, bucket_name)
 
-        print("gathering files from S3 bucket (%s) for %s" % (bucket, prefix))
+        print(f"gathering files from S3 bucket ({bucket}) for {prefix}")
 
         for s3_obj in bucket.objects.filter(Prefix=prefix):
             for suf in suffixes:
@@ -541,9 +554,12 @@ def collect_bids_files_configs(bids_dir, aws_input_creds=''):
                             file_paths += [os.path.join(root, f).replace(bids_dir,'')
                                    .lstrip('/')]
                         if f.endswith('json') and suf in f:
-                            config_dict.update(
-                                {os.path.join(root.replace(bids_dir, '').lstrip('/'), f):
-                                     json.load(open(os.path.join(root, f), 'r'))})
+                            try:
+                                config_dict.update(
+                                    {os.path.join(root.replace(bids_dir, '').lstrip('/'), f):
+                                         json.load(open(os.path.join(root, f), 'r'))})
+                            except UnicodeDecodeError:
+                                raise Exception("Could not decode {0}".format(os.path.join(root, f)))
 
     if not file_paths and not config_dict:
         raise IOError("Didn't find any files in {0}. Please verify that the "

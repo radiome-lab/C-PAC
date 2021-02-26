@@ -78,16 +78,13 @@ RUN curl -sLo /tmp/libpng12.deb http://mirrors.kernel.org/ubuntu/pool/main/libp/
     dpkg -i /tmp/libpng12.deb && \
     rm /tmp/libpng12.deb
 
-# Compiles libxp- this is necessary for some newer versions of Ubuntu
-# where the is no Debian package available.
-RUN git clone git://anongit.freedesktop.org/xorg/lib/libXp /tmp/libXp && \
-    cd /tmp/libXp && \
-    ./autogen.sh && \
-    ./configure && \
-    make && \
-    make install && \
-    cd - && \
-    rm -rf /tmp/libXp
+# Install libxp from third-party repository
+RUN apt-get update && \
+    apt-get install -y software-properties-common && \
+    add-apt-repository --yes ppa:zeehio/libxp && \
+    apt-get update && apt-get install libxp6 libxp-dev && \
+    add-apt-repository --remove --yes ppa:zeehio/libxp && \
+    apt-get update
 
 # Installing and setting up c3d
 RUN mkdir -p /opt/c3d && \
@@ -106,6 +103,7 @@ RUN if [ -f /usr/lib/x86_64-linux-gnu/mesa/libGL.so.1.2.0]; then \
         ln -svf $libs_path/libgsl.so.23 $libs_path/libgsl.so.19 && \
         ln -svf $libs_path/libgsl.so.23 $libs_path/libgsl.so.0; \
     elif [ -f $libs_path/libgsl.so.23.0.0 ]; then \
+        ln -svf $libs_path/libgsl.so.23.0.0 $libs_path/libgsl.so.19 && \
         ln -svf $libs_path/libgsl.so.23.0.0 $libs_path/libgsl.so.0; \
     elif [ -f $libs_path/libgsl.so ]; then \
         ln -svf $libs_path/libgsl.so $libs_path/libgsl.so.0; \
@@ -155,6 +153,8 @@ RUN mkdir /ants_template && \
 # install ANTs
 ENV PATH=/usr/lib/ants:$PATH
 RUN apt-get install -y ants
+# RUN export ANTSPATH=/usr/lib/ants
+ENV ANTSPATH=/usr/lib/ants/
 
 # install ICA-AROMA
 RUN mkdir -p /opt/ICA-AROMA

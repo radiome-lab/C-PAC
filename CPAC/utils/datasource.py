@@ -1,3 +1,4 @@
+import csv
 import json
 import nipype.pipeline.engine as pe
 import nipype.interfaces.utility as util
@@ -368,16 +369,27 @@ def match_epi_fmaps(bold_pedir, epi_fmap_one, epi_fmap_params_one,
     return (opposite_pe_epi, same_pe_epi)
 
 
-def create_check_for_s3_node(name, file_path, img_type='other', creds_path=None, dl_dir=None):
+def create_check_for_s3_node(name, file_path, img_type='other', creds_path=None, dl_dir=None, map_node=False):
 
-    check_s3_node = pe.Node(function.Function(input_names=['file_path',
-                                                           'creds_path',
-                                                           'dl_dir',
-                                                           'img_type'],
-                                              output_names=['local_path'],
-                                              function=check_for_s3,
-                                              as_module=True),
-                            name='check_for_s3_%s' % name)
+    if map_node:
+        check_s3_node = pe.MapNode(function.Function(input_names=['file_path',
+                                                                  'creds_path',
+                                                                  'dl_dir',
+                                                                  'img_type'],
+                                                     output_names=['local_path'],
+                                                     function=check_for_s3,
+                                                     as_module=True),
+                                                     iterfield=['file_path'],
+                                   name='check_for_s3_%s' % name)
+    else: 
+        check_s3_node = pe.Node(function.Function(input_names=['file_path',
+                                                               'creds_path',
+                                                               'dl_dir',
+                                                               'img_type'],
+                                                  output_names=['local_path'],
+                                                  function=check_for_s3,
+                                                  as_module=True),
+                                name='check_for_s3_%s' % name)
 
     check_s3_node.inputs.set(
         file_path=file_path,
@@ -397,7 +409,6 @@ def check_for_s3(file_path, creds_path=None, dl_dir=None, img_type='other',
     import os
     import nibabel as nib
     import botocore.exceptions
-
     from indi_aws import fetch_creds
 
     # Init variables
@@ -477,7 +488,35 @@ def check_for_s3(file_path, creds_path=None, dl_dir=None, img_type='other',
 
     # Check if it exists or it is successfully downloaded
     if not os.path.exists(local_path):
-        raise IOError('File {0} does not exist!'.format(local_path))
+        # alert users to 2020-07-20 Neuroparc atlas update (v0 to v1)
+        ndmg_atlases = {}
+        with open(
+            os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                'resources/templates/ndmg_atlases.csv'
+            )
+        ) as ndmg_atlases_file:
+            ndmg_atlases['v0'], ndmg_atlases['v1'] = zip(*[(
+                f'/ndmg_atlases/label/Human/{atlas[0]}',
+                f'/ndmg_atlases/label/Human/{atlas[1]}'
+            ) for atlas in csv.reader(ndmg_atlases_file)])
+        if local_path in ndmg_atlases['v0']:
+            raise FileNotFoundError(
+                ''.join([
+                    'Neuroparc atlas paths were updated on July 20, 2020. '
+                    'C-PAC configuration files using Neuroparc v0 atlas paths '
+                    '(including C-PAC default and preconfigured pipeline '
+                    'configurations from v1.6.2a and earlier) need to be '
+                    'updated to use Neuroparc atlases. Your current '
+                    'configuration includes the Neuroparc v0 path '
+                    f'{local_path} which needs to be updated to ',
+                    ndmg_atlases['v1'][ndmg_atlases['v0'].index(local_path)],
+                    '. For a full list such paths, see https://fcp-indi.'
+                    'github.io/docs/nightly/user/ndmg_atlases'
+                ])
+            )
+        else:
+            raise FileNotFoundError(f'File {local_path} does not exist!')
 
     if verbose:
         print("Downloaded file:\n{0}\n".format(local_path))
@@ -507,15 +546,21 @@ def resolve_resolution(resolution, template, template_name, tag = None):
     from CPAC.utils.datasource import check_for_s3
 
     tagname = None
-    local_path = None 
-    # TODO XL think a better way to check template
+    local_path = None
+    
     if "{" in template and tag is not None:
             tagname = "${" + tag + "}"
     try:
         if tagname is not None:
             local_path = check_for_s3(template.replace(tagname, str(resolution)))     
-    except IOError:
+    except (IOError, OSError):
         local_path = None
+
+    ## TODO debug - it works in ipython but doesn't work in nipype wf
+    # try:
+    #     local_path = check_for_s3('/usr/local/fsl/data/standard/MNI152_T1_3.438mmx3.438mmx3.4mm_brain_mask_dil.nii.gz')     
+    # except (IOError, OSError):
+    #     local_path = None
 
     if local_path is None:
         if tagname is not None:
@@ -553,7 +598,7 @@ def create_anat_datasource(wf_name='anat_datasource'):
 
     inputnode = pe.Node(util.IdentityInterface(
                                 fields=['subject', 'anat', 'creds_path',
-                                        'dl_dir'],
+                                        'dl_dir', 'img_type'],
                                 mandatory_inputs=True),
                         name='inputnode')
 
@@ -569,7 +614,7 @@ def create_anat_datasource(wf_name='anat_datasource'):
     wf.connect(inputnode, 'anat', check_s3_node, 'file_path')
     wf.connect(inputnode, 'creds_path', check_s3_node, 'creds_path')
     wf.connect(inputnode, 'dl_dir', check_s3_node, 'dl_dir')
-    check_s3_node.inputs.img_type = 'anat'
+    wf.connect(inputnode, 'img_type', check_s3_node, 'img_type')
 
     outputnode = pe.Node(util.IdentityInterface(fields=['subject',
                                                         'anat']),

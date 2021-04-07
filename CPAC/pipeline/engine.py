@@ -78,7 +78,7 @@ class ResourcePool(object):
 
         self.xfm = ['alff', 'falff', 'reho']
 
-        self.smooth = ['alff', 'falff', 'reho', 'vmhc',
+        self.smooth = ['alff', 'falff', 'reho',
                        'space-template_alff',
                        'space-template_falff',
                        'space-template_reho',
@@ -321,6 +321,12 @@ class ResourcePool(object):
         last_entry = get_last_prov_entry(prov)
         resource = last_entry.split(':')[0]
         return (resource, str(prov))
+        
+    def generate_prov_list(self, prov_str):
+        if not isinstance(prov_str, str):
+            raise Exception('\n[!] Developer info: the CpacProvenance '
+                            f'entry for {prov} has to be a string.\n')
+        return (ast.literal_eval(prov_str))
 
     def get_resource_strats_from_prov(self, prov):
         # if you provide the provenance of a resource pool output, this will
@@ -368,21 +374,21 @@ class ResourcePool(object):
             if isinstance(resource, tuple):
                 linked = []
                 for label in list(resource):
-                    #if isinstance(label, list):
                     rp_dct, fetched_resource = self.get(label,
                                                         report_fetched=True,
                                                         optional=True)
                     if not rp_dct:
                         continue
                     linked.append(fetched_resource)
-                    #else:
-                    #    linked.append(label)
-                linked_resources.append(linked)
                 resource_list += linked
+                if len(linked) < 2:
+                    continue
+                linked_resources.append(linked)
             else:
                 resource_list.append(resource)
 
         total_pool = []
+        variant_pool = {}
         len_inputs = len(resource_list)
         for resource in resource_list:
             rp_dct, fetched_resource = self.get(resource,
@@ -392,10 +398,19 @@ class ResourcePool(object):
                 len_inputs -= 1
                 continue
             sub_pool = []
+
             for strat in rp_dct.keys():
                 json_info = self.get_json(fetched_resource, strat)
                 cpac_prov = json_info['CpacProvenance']
                 sub_pool.append(cpac_prov)
+                if fetched_resource not in variant_pool:
+                    variant_pool[fetched_resource] = []
+                if 'CpacVariant' in json_info:
+                    for key, val in json_info['CpacVariant'].items():
+                        if val not in variant_pool[fetched_resource]:
+                            variant_pool[fetched_resource] += val
+                            variant_pool[fetched_resource].append(f'NO-{val[0]}')
+
             total_pool.append(sub_pool)
 
         # TODO: right now total_pool is:
@@ -412,11 +427,18 @@ class ResourcePool(object):
             # OF ALL THE DIFFERENT INPUTS. and they are tagged by their fetched inputs with {name}:{strat}.
             # so, each tuple has ONE STRAT FOR EACH INPUT, so if there are three inputs, each tuple will have 3 items.
             new_strats = {}
+
+            # get rid of duplicates - TODO: refactor .product
+            strat_str_list = []            
+            strat_list_list = []
             for strat_tuple in strats:
-                # the strats are still in provenance-list form
-                #   not string-based pipe_idx's yet
-                strat_list = list(strat_tuple)     # <------- strat_list is now a list of strats all combined together, one of the permutations. keep in mind each strat in the combo comes from a different data source/input
-                                                   #          like this:   strat_list = [desc-preproc_T1w:pipe_idx_anat_1, desc-brain_mask:pipe_idx_mask_1]
+                strat_list = list(copy.deepcopy(strat_tuple))
+                strat_str = str(strat_list)
+                if strat_str not in strat_str_list:
+                    strat_str_list.append(strat_str)
+                    strat_list_list.append(strat_list)
+
+            for strat_list in strat_list_list:
 
                 json_dct = {}
                 for strat in strat_list:
@@ -430,110 +452,77 @@ class ResourcePool(object):
                 drop = False
                 if linked_resources:
                     for linked in linked_resources:  # <--- 'linked' is each tuple
+                        if drop:
+                            break
                         for xlabel in linked:
                             if drop:
                                 break
-                            xjson = json_dct[xlabel]
+                            xjson = copy.deepcopy(json_dct[xlabel])
                             for ylabel in linked:
                                 if xlabel == ylabel:
                                     continue
-                                yjson = json_dct[ylabel]
+                                yjson = copy.deepcopy(json_dct[ylabel])
+                                
+                                if 'CpacVariant' not in xjson:
+                                    xjson['CpacVariant'] = {}
+                                if 'CpacVariant' not in yjson:
+                                    yjson['CpacVariant'] = {}
+                                    
+                                current_strat = []
+                                for key, val in xjson['CpacVariant'].items():
+                                    if isinstance(val, list):
+                                        current_strat.append(val[0])
+                                    else:
+                                        current_strat.append(val)
+                                current_spread = list(set(variant_pool[xlabel]))
+                                for spread_label in current_spread:
+                                    if 'NO-' in spread_label:
+                                        continue
+                                    if spread_label not in current_strat:
+                                        current_strat.append(f'NO-{spread_label}')
+                                
+                                other_strat = []
+                                for key, val in yjson['CpacVariant'].items():
+                                    if isinstance(val, list):
+                                        other_strat.append(val[0])
+                                    else:
+                                        other_strat.append(val)
+                                other_spread = list(set(variant_pool[ylabel]))
+                                for spread_label in other_spread:
+                                    if 'NO-' in spread_label:
+                                        continue
+                                    if spread_label not in other_strat:
+                                        other_strat.append(f'NO-{spread_label}')
+                                
+                                for variant in current_spread:
+                                    in_current_strat = False
+                                    in_other_strat = False
+                                    in_other_spread = False
 
-                                if 'CpacVariant' not in xjson and 'CpacVariant' in yjson:
-                                    raw_xlabel = self.get_raw_label(xlabel)
-                                    if raw_xlabel in yjson['CpacVariant']:
-                                        drop = True
-                                        #print(f'xlabel: {xlabel}')
-                                        #print(f'ylabel: {ylabel}')
-                                        #print('yjson had cpacvariant and xjson didnt, but something in xjson exists in the yjson variant list')
-                                        break
-                                    for entry in self.get_resource_strats_from_prov(xjson['CpacProvenance']):
-                                        raw_label = self.get_raw_label(entry)
-                                        if raw_label in yjson['CpacVariant']:
-                                            drop = True
-                                            break
-                                        else:
-                                            for sub_entry in self.get_resource_strats_from_prov(entry):
-                                                raw_sub_entry = self.get_raw_label(sub_entry)
-                                                if raw_sub_entry in yjson['CpacVariant']:
-                                                    drop = True
-                                                    break
+                                    if variant is None:
+                                        in_current_strat = True
+                                        if None in other_spread:
+                                            in_other_strat = True
+                                    if variant in current_strat:
+                                        in_current_strat = True
+                                    if variant in other_strat:
+                                        in_other_strat = True
+                                    if variant in other_spread:
+                                        in_other_spread = True
 
-                                elif 'CpacVariant' not in yjson and 'CpacVariant' in xjson:
-                                    raw_ylabel = self.get_raw_label(ylabel)
-                                    if raw_ylabel in xjson['CpacVariant']:
-                                        drop = True
-                                        #print(f'xlabel: {xlabel}')
-                                        #print(f'ylabel: {ylabel}')
-                                        #print('xjson had cpacvariant and yjson didnt, but something in yjson exists in the xjson variant list')
-                                        break
-                                    for entry in self.get_resource_strats_from_prov(yjson['CpacProvenance']):
-                                        raw_label = self.get_raw_label(entry)
-                                        if raw_label in xjson['CpacVariant']:
-                                            drop = True
-                                            break
-                                        else:
-                                            for sub_entry in self.get_resource_strats_from_prov(entry):
-                                                raw_sub_entry = self.get_raw_label(sub_entry)
-                                                if raw_sub_entry in xjson['CpacVariant']:
-                                                    drop = True
-                                                    break
-
-                                elif 'CpacVariant' not in xjson and 'CpacVariant' not in yjson:
-                                    continue
-
-                                else:
-                                    for younger_resource in xjson['CpacVariant']:
-                                        if younger_resource in yjson['CpacVariant']:
-                                            if xjson['CpacVariant'][younger_resource] != yjson['CpacVariant'][younger_resource]:
+                                    if not in_other_strat:
+                                        if in_other_spread:
+                                            if in_current_strat:
                                                 drop = True
                                                 break
-                                    else:
-                                        # if no drops - but we still need to
-                                        # look for absences of CpacVariant
-                                        # younger resources
-                                        for younger_resource, variant_list in xjson['CpacVariant'].items():
-                                            yprov = copy.deepcopy(yjson['CpacProvenance'])
-                                            flat_yprov = self.flatten_prov(yprov)
-                                            raw_labels = []
-                                            flat_raw_yprov = []
-                                            for entry in flat_yprov:
-                                                raw_resource = self.get_raw_label(entry.split(':')[0])
-                                                entry = entry.replace(entry.split(':')[0],
-                                                                      raw_resource)
-                                                raw_labels.append(raw_resource)
-                                                flat_raw_yprov.append(entry)
-                                            if younger_resource in raw_labels:
-                                                for variant in variant_list:
-                                                    if f'{younger_resource}:{variant}' not in flat_raw_yprov:
-                                                        drop = True
-                                                        break
-
-                                    for younger_resource in yjson['CpacVariant']:
-                                        if younger_resource in xjson['CpacVariant']:
-                                            if xjson['CpacVariant'][younger_resource] != yjson['CpacVariant'][younger_resource]:
+                                            
+                                    if in_other_strat:
+                                        if in_other_spread:
+                                            if not in_current_strat:
                                                 drop = True
-                                                break
-                                    else:
-                                        # if no drops - but we still need to
-                                        # look for absences of CpacVariant
-                                        # younger resources
-                                        for younger_resource, variant_list in yjson['CpacVariant'].items():
-                                            xprov = copy.deepcopy(xjson['CpacProvenance'])
-                                            flat_xprov = self.flatten_prov(xprov)
-                                            raw_labels = []
-                                            flat_raw_xprov = []
-                                            for entry in flat_xprov:
-                                                raw_resource = self.get_raw_label(entry.split(':')[0])
-                                                entry = entry.replace(entry.split(':')[0],
-                                                                      raw_resource)
-                                                raw_labels.append(raw_resource)
-                                                flat_raw_xprov.append(entry)
-                                            if younger_resource in raw_labels:
-                                                for variant in variant_list:
-                                                    if f'{younger_resource}:{variant}' not in flat_raw_xprov:
-                                                        drop = True
-                                                        break
+                                                break       
+                                if drop:
+                                    break
                 if drop:
                     continue
 
@@ -745,10 +734,12 @@ class ResourcePool(object):
         non_sink = ['scan', 'TR', 'tpattern', 'start_tr', 'stop_tr',
                     'pe_direction', 'subject', 'atlas_name', 'scan_params',
                     'deltaTE', 'diff_phase_dwell', 'dwell_asym_ratio',
-                    'diffphase_scan_params', 'diffmag_scan_params',
-                    'motion-basefile']
-        excl = ['T1w', 'bold', 'motion_basefile', 'bold_coreg_input',
+                    'diffphase_scan_params', 'diffmag_scan_params']
+        excl = ['T1w', 'bold', 'motion-basefile',
                 'diffphase', 'diffmag', 'epi']
+        substring_excl = []
+        bold_descs = ['desc-cleaned', 'desc-brain', 'desc-motion', 
+                      'desc-preproc']
         config_paths = ['T1w_ACPC_template', 'T1w_brain_ACPC_template',
                         'unet_model', 'T1w_brain_template', 'T1w_template',
                         'T1w_brain_template_mask',
@@ -777,6 +768,26 @@ class ResourcePool(object):
 
         if add_excl:
             excl += add_excl
+
+        if not cfg.pipeline_setup['output_directory']['write_debugging_outputs']:
+            excl.append('motion-basefile')
+            substring_excl.append(['desc-reginput', 'bold'])
+            
+        if not cfg.pipeline_setup['output_directory']['write_func_outputs']:
+            avail_bolds = []
+            for resource in self.rpool.keys():
+                if resource.split('_')[-1] != 'bold':
+                    continue
+                for bold_desc in bold_descs:
+                    if bold_desc in resource:
+                        if bold_desc not in avail_bolds:
+                            avail_bolds.append(bold_desc)
+            for bold in bold_descs:
+                if bold in avail_bolds:
+                    bold_descs.remove(bold)
+                    break
+            for bold in bold_descs:
+                substring_excl.append([bold, 'bold'])                  
 
         anat = ['T1w', 'probseg', 'T1w-template']
         func = ['bold', 'timeseries', 'alff', 'falff', 'reho', 'vmhc',
@@ -811,6 +822,23 @@ class ResourcePool(object):
             # TODO: cpac_outputs.csv etc
             if resource in excl:
                 continue
+            drop = False
+            for substring_list in substring_excl:
+                bool_list = []
+                for substring in substring_list:
+                    if substring in resource:
+                        bool_list.append(True)
+                    else:
+                        bool_list.append(False)
+                for item in bool_list:
+                    if not item:
+                        break
+                    drop = True
+                if drop:
+                    break
+            if drop:
+                continue
+                
             subdir = 'other'
             if resource.split('_')[-1] in anat:
                 subdir = 'anat'
@@ -829,7 +857,11 @@ class ResourcePool(object):
             elif resource.split('_')[-1] == 'xfm':
                 if 'from-T1w' in resource:
                     subdir = 'anat'
+                if 'template_to-T1w' in resource:
+                    subdir = 'anat'
                 if 'from-bold' in resource:
+                    subdir = 'func'
+                if 'template_to-bold' in resource:
                     subdir = 'func'
             else:
                 for tag in motions:
@@ -862,6 +894,22 @@ class ResourcePool(object):
         for resource in self.rpool.keys():
             # TODO: cpac_outputs.csv etc
             if resource in excl:
+                continue
+            drop = False
+            for substring_list in substring_excl:
+                bool_list = []
+                for substring in substring_list:
+                    if substring in resource:
+                        bool_list.append(True)
+                    else:
+                        bool_list.append(False)
+                for item in bool_list:
+                    if not item:
+                        break
+                    drop = True
+                if drop:
+                    break
+            if drop:
                 continue
                 
             if not all:
@@ -1182,6 +1230,7 @@ class NodeBlock(object):
                         for label, connection in outs.items():
                             self.check_output(outputs, label, name)
                             new_json_info = copy.deepcopy(strat_pool.get('json'))
+                            
                             new_json_info['Sources'] = [x for x in strat_pool.get_entire_rpool() if x != 'json']
 
                             if strat_pool.check_rpool(label):
@@ -1509,6 +1558,9 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
 
     # update resampled template to resource pool
     for resolution, template, template_name, tag in templates_for_resampling:
+
+        if not template:
+            continue
 
         if '$FSLDIR' in template:
             template = template.replace('$FSLDIR', cfg.pipeline_setup[

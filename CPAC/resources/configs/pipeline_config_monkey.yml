@@ -1,7 +1,7 @@
 %YAML 1.1
 ---
 # CPAC Pipeline Configuration YAML file
-# Version 1.8.0.dev
+# Version 1.8.0
 #
 # http://fcp-indi.github.io for more info.
 #
@@ -275,16 +275,6 @@ functional_preproc:
     # this is a fork point
     #   run: [On, Off] - this will run both and fork the pipeline
     run: [On]
-
-  motion_estimates_and_correction: 
-
-    motion_correction: 
-
-      # option parameters
-      AFNI-3dvolreg: 
-
-        # This option is useful when aligning high-resolution datasets that may need more alignment than a few voxels.
-        functional_volreg_twopass: On
 
   distortion_correction: 
 

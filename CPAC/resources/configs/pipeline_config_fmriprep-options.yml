@@ -1,7 +1,7 @@
 %YAML 1.1
 ---
 # CPAC Pipeline Configuration YAML file
-# Version 1.8.0.dev
+# Version 1.8.0
 #
 # http://fcp-indi.github.io for more info.
 #
@@ -83,6 +83,11 @@ anatomical_preproc:
     # this is a fork option
     using: [niworkflows-ants]
 
+    FSL-BET: 
+
+      # Mask created along with skull stripping. It should be `On`, if selected functionalMasking :  ['Anatomical_Refined'] and `FSL` as skull-stripping method.
+      mask_boolean: Off
+
 segmentation: 
 
   tissue_segmentation: 
@@ -99,7 +104,7 @@ segmentation:
         # These maps are included as part of the 'Image Resource Files' package available on the Install page of the User Guide.
         # It is not necessary to change this path unless you intend to use non-standard priors.
         priors_path: $FSLDIR/data/standard/tissuepriors/2mm
-        
+
       thresholding:
 
         # thresholding of the tissue segmentation probability maps

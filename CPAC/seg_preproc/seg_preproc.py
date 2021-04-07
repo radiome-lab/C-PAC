@@ -575,8 +575,7 @@ def tissue_seg_fsl_fast(wf, cfg, strat_pool, pipe_num, opt=None):
     #  'probability_maps' output is a list of individual probability maps
     #      triggered by 'probability_maps' boolean input (-p)
 
-    segment = pe.Node(interface=fsl.FAST(), name=f'segment_{pipe_num}',
-                      mem_gb=1.5)
+    segment = pe.Node(interface=fsl.FAST(), name=f'segment_{pipe_num}')
     segment.inputs.img_type = 1
     segment.inputs.segments = True
     segment.inputs.probability_maps = True
@@ -782,7 +781,7 @@ def tissue_seg_EPI_template_based(wf, cfg, strat_pool, pipe_num, opt=None):
     '''
 
     xfm_prov = strat_pool.get_cpac_provenance(
-        'from-template_to-T1w_mode-image_desc-linear_xfm')
+        'from-template_to-bold_mode-image_desc-linear_xfm')
     reg_tool = check_prov_for_regtool(xfm_prov)
     use_ants = reg_tool == 'ants'
 

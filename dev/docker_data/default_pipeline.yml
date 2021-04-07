@@ -1,7 +1,7 @@
 %YAML 1.1
 ---
 # CPAC Pipeline Configuration YAML file
-# Version 1.8.0.dev
+# Version 1.8.0
 #
 # http://fcp-indi.github.io for more info.
 #
@@ -867,7 +867,7 @@ functional_preproc:
       AFNI-3dvolreg:
 
         # This option is useful when aligning high-resolution datasets that may need more alignment than a few voxels.
-        functional_volreg_twopass: Off
+        functional_volreg_twopass: On
 
       # Choose motion correction reference. Options: mean, median, selected volume
       motion_correction_reference: ['mean']

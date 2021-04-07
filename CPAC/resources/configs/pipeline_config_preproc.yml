@@ -1,7 +1,7 @@
 %YAML 1.1
 ---
 # CPAC Pipeline Configuration YAML file
-# Version 1.8.0.dev
+# Version 1.8.0
 #
 # http://fcp-indi.github.io for more info.
 #
@@ -126,18 +126,6 @@ registration_workflows:
         # EPI registration configuration - synonymous with T1_registration
         # parameters under anatomical registration above
         parameters: 
-
-functional_preproc: 
-
-  motion_estimates_and_correction: 
-
-    motion_correction: 
-
-      # option parameters
-      AFNI-3dvolreg: 
-
-        # This option is useful when aligning high-resolution datasets that may need more alignment than a few voxels.
-        functional_volreg_twopass: On
 
 nuisance_corrections: 
 

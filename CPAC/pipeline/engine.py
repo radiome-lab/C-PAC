@@ -1465,6 +1465,7 @@ def ingress_output_dir(cfg, rpool, unique_id, creds_path=None):
         #                    'session in this directory?\n\nDirectory: '
         #                    f'{cpac_dir_anat}\nFilepath: {filepath}\n\n')
         suffix = data_label.split('_')[-1]
+        desc_val = 'desc-missing'
         for tag in data_label.split('_'):
             if 'desc-' in tag:
                 desc_val = tag

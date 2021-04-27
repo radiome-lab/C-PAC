@@ -132,6 +132,7 @@ def template_convergence(mat_file, mat_type='matrix',
     return abs(distance) <= convergence_threshold
 
 
+# CC remove skull functionality from here?
 def create_temporary_template(input_brain_list, input_skull_list, 
                               output_brain_path, output_skull_path, avg_method='median'):
     """
@@ -164,7 +165,7 @@ def create_temporary_template(input_brain_list, input_skull_list,
         raise ValueError('ERROR create_temporary_template: image list is empty')
 
     if len(input_brain_list) == 1 and len(input_skull_list) == 1:
-        return input_brain_list[0], input_skull_list[0] 
+        return input_brain_list[0], input_skull_list[0]
 
     # ALIGN CENTERS
     avg_brain_data = getattr(np, avg_method)(
@@ -380,9 +381,11 @@ def template_creation_flirt(input_brain_list, input_skull_list, init_reg=None, a
     distance smaller than the threshold) to all the images of the precedent iteration.
     """
     while not converged:
+
+        # remove the skull functionality from here?
         temporary_brain_template, temporary_skull_template = create_temporary_template(
                                                 input_brain_list=output_brain_list,
-                                                input_skull_list=output_skull_list,
+                                                input_skull_list=output_brain_list,
                                                 output_brain_path=temporary_brain_template,
                                                 output_skull_path=temporary_skull_template,
                                                 avg_method=avg_method)
@@ -396,25 +399,11 @@ def template_creation_flirt(input_brain_list, input_skull_list, init_reg=None, a
 
         mat_list = [node.inputs.out_matrix_file for node in reg_list_node]
 
+        output_brain_list = [node.inputs.out_file for node in reg_list_node]
+
         # TODO clean code, refactor variables 
         if len(warp_list) == 0:
             warp_list = mat_list
-
-        for index, mat in enumerate(mat_list):
-            cmd = f"flirt -in {output_skull_list[index]} -ref {temporary_skull_template} -applyxfm " \
-                  f"-init {mat} -dof {dof} -interp {interp} -cost {cost} " \
-                  f"-out { os.path.join(os.getcwd(), os.path.basename(output_skull_list[index]))}"
-            os.system(cmd)
-
-            output_skull_list[index] = os.path.join(os.getcwd(), os.path.basename(output_skull_list[index]))
-            
-            # why inverse?
-            cmd = f"convert_xfm -omat {warp_list_filenames[index]} -inverse {warp_list[index]}"
-            os.system(cmd)
-
-            warp_list[index] = warp_list_filenames[index]
-
-        output_brain_list = [node.inputs.out_file for node in reg_list_node]
 
         # test if every transformation matrix has reached the convergence
         convergence_list = [template_convergence(mat, mat_type, convergence_threshold) for mat in mat_list]
@@ -436,7 +425,21 @@ def template_creation_flirt(input_brain_list, input_skull_list, init_reg=None, a
                                       unique_id_list=unique_id_list)
 
     warp_list = [node.inputs.out_matrix_file for node in reg_list_node]
-    
+
+    # only do this once at the end, copy the skull-on data into the new
+    # template space, should do this using thread pool !
+    for index, mat in enumerate(warp_list):
+        cmd = f"flirt -in {output_skull_list[index]} -ref {skull_template} -applyxfm " \
+              f"-init {mat} -dof {dof} -interp {interp} -cost {cost} " \
+              f"-out { os.path.join(os.getcwd(), os.path.basename(output_skull_list[index]))}"
+        os.system(cmd)
+
+        output_skull_list[index] = os.path.join(os.getcwd(), os.path.basename(output_skull_list[index]))
+
+        # why inverse?
+        cmd = f"convert_xfm -omat {warp_list_filenames[index]} -inverse {warp_list[index]}"
+        os.system(cmd)
+
     return brain_template, skull_template, output_brain_list, output_skull_list, warp_list
 
 

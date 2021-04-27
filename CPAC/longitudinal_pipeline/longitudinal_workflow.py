@@ -3,6 +3,7 @@ import os
 import copy
 import time
 import shutil
+import json
 
 from nipype import config
 from nipype import logging
@@ -53,6 +54,8 @@ from CPAC.utils.utils import (
     get_scan_params,
     get_tr
 )
+
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger('nipype.workflow')
 
@@ -259,8 +262,7 @@ def mask_longitudinal_T1w_brain(wf, cfg, strat_pool, pipe_num, opt=None):
     return (wf, outputs)
 
 
-def warp_longitudinal_T1w_to_template(wf, cfg, strat_pool, pipe_num,
-                                      opt=None):
+def warp_longitudinal_T1w_to_template(wf, cfg, strat_pool, pipe_num, opt=None):
     '''
     {"name": "warp_longitudinal_T1w_to_template",
      "config": ["longitudinal_template_generation"],
@@ -400,6 +402,20 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
         None
     """
 
+    # Check pipeline config resources
+    sub_mem_gb, num_cores_per_sub, num_ants_cores, num_omp_cores = check_config_resources(
+        config)
+
+    plugin = 'MultiProc'
+    plugin_args = {'memory_gb': sub_mem_gb, 'n_procs': num_cores_per_sub}
+
+    # perhaps in future allow user to set threads maximum
+    # this is for centrality mostly
+    # import mkl
+    os.environ['OMP_NUM_THREADS'] = str(num_omp_cores)
+    os.environ['MKL_NUM_THREADS'] = '1'  # str(num_cores_per_sub)
+    os.environ['ITK_GLOBAL_DEFAULT_NUMBER_OF_THREADS'] = str(num_ants_cores)
+
     # list of lists for every strategy
     session_id_list = []
     session_wfs = {}
@@ -409,9 +425,25 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
 
     orig_pipe_name = config.pipeline_setup['pipeline_name']
 
+    num_sessions_at_once = 2
+    if 'system_config' in config.pipeline_setup and 'num_participants_at_once' in config.pipeline_setup['system_config']:
+        num_sessions_at_once = config.pipeline_setup['system_config']['num_participants_at_once']
+
+    # num_sessions_at_once = 1
+    print(f'CC starting pool with {num_sessions_at_once} threads!')
+    if num_sessions_at_once > 1:
+        pool = ThreadPoolExecutor(max_workers=num_sessions_at_once)
+    else:
+        print('Running one session at a  time')
+
+    print(f'working on {len(sub_list)} sessions')
+
     # Loop over the sessions to create the input for the longitudinal
     # algorithm
+
+    running_workflows = []
     for session in sub_list:
+        print(f"working on {session['unique_id']}")
 
         unique_id = session['unique_id']
         session_id_list.append(unique_id)
@@ -432,24 +464,50 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
         except KeyError:
             input_creds_path = None
 
-        workflow = initialize_nipype_wf(config, sub_list[0],
+        # how could we build this as a tranche workflow?
+        workflow = initialize_nipype_wf(config, session,
                                         # just grab the first one for the name
                                         name="anat_longitudinal_pre-preproc")
 
         workflow, rpool = initiate_rpool(workflow, config, session)
+
         pipeline_blocks = build_anat_preproc_stack(rpool, config)
         workflow = connect_pipeline(workflow, config, rpool, pipeline_blocks)
 
         session_wfs[unique_id] = rpool
 
         rpool.gather_pipes(workflow, config)
+        print(f"adding {session['unique_id']} to the thread pool")
 
-        workflow.run()
+        if num_sessions_at_once > 1:
+            running_workflows.append(pool.submit(workflow.run, *(plugin, plugin_args)))
+            print(f"added {session['unique_id']} to the thread pool")
+        else:
+            workflow.run(plugin=plugin, plugin_args=plugin_args)
 
         cpac_dir = os.path.join(out_dir, f'cpac_{orig_pipe_name}',
                                 f'{subject_id}_{unique_id}')
+
         cpac_dirs.append(os.path.join(cpac_dir, 'anat'))
 
+
+    # while (len(running_workflows) > 0):
+    for wf in running_workflows:
+        # try:
+        wf.result()
+        # done+=1
+        running_workflows.remove(wf)
+        # except TimeoutError:
+        #     print(f"{wf} workflow still running")
+
+    running_workflows = []
+
+    pool.shutdown()
+
+    return 1
+
+    # TODO: It seems like we should be able to pull this from the
+    # resource pool rather than searching the file paths
     # Now we have all the anat_preproc set up for every session
     # loop over the different anat preproc strategies
     strats_brain_dct = {}
@@ -471,6 +529,8 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
                                                                      head_file))
 
     for strat in strats_brain_dct.keys():
+
+        print(strat)
 
         wf = initialize_nipype_wf(config, sub_list[0],
                                   # just grab the first one for the name
@@ -543,7 +603,7 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
 
         # this is going to run multiple times!
         # once for every strategy!
-        wf.run()
+        wf.run(plugin='MultiProc')
 
         # now, just write out a copy of the above to each session
         config.pipeline_setup['pipeline_name'] = orig_pipe_name
@@ -604,7 +664,7 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
                     'space-T1w_desc-brain_mask']
 
             rpool.gather_pipes(wf, config, add_excl=excl)
-            wf.run()
+            wf.run(plugin='MultiProc')
 
     # begin single-session stuff again
     for session in sub_list:
@@ -640,9 +700,25 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
 
         # this is going to run multiple times!
         # once for every strategy!
-        wf.run()
+        #wf.run(plugin='MultiProc')
+        if num_sessions_at_once > 1:
+            print(f"adding {session['unique_id']} to the thread pool")
+            running_workflows.append(pool.apply_async(workflow.run, args=(plugin, plugin_args)))
+            print(f"added {session['unique_id']} to the thread pool")
+        else:
+            workflow.run(plugin=plugin, plugin_args=plugin_args)
 
+    if num_sessions_at_once > 1:
 
+        for wf in running_workflows:
+            wf.get()
+        
+        print('waiting for threads to complete')
+        pool.close()
+        print('threads completed, now closing')
+        pool.join()
+    
+        print('threads joined, waiting for print')
 
 
 # TODO check:
@@ -754,7 +830,7 @@ def func_preproc_longitudinal_wf(subject_id, sub_list, config):
     for sub_ses_id, strat_nodes_list in ses_list_strat_list.items():
         strat_list_ses_list['func_default'].append(strat_nodes_list[0])
 
-    workflow.run()
+    workflow.run(plugin='MultiProc')
 
     return strat_list_ses_list
 
@@ -1165,6 +1241,6 @@ def func_longitudinal_template_wf(subject_id, strat_list, config):
         'default'
     )
 
-    workflow.run()
+    workflow.run(plugin='MultiProc')
 
     return

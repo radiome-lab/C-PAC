@@ -3,6 +3,7 @@ import json
 import nipype.interfaces.utility as util
 from nipype import logging
 from CPAC.pipeline import nipype_pipeline_engine as pe
+import datetime
 import nipype.interfaces.afni as afni
 
 logger = logging.getLogger('workflow')
@@ -525,13 +526,18 @@ def create_general_datasource(wf_name):
     from CPAC.pipeline import nipype_pipeline_engine as pe
     import nipype.interfaces.utility as util
 
+    print(f'{datetime.datetime.now().isoformat()} started creating datasource {wf_name}')
     wf = pe.Workflow(name=wf_name)
+
+    print(f'{datetime.datetime.now().isoformat()} creating input node {wf_name}')
 
     inputnode = pe.Node(util.IdentityInterface(
         fields=['unique_id', 'data', 'creds_path',
                 'dl_dir'],
         mandatory_inputs=True),
         name='inputnode')
+
+    print(f'{datetime.datetime.now().isoformat()} creating check_s3_node {wf_name}')
 
     check_s3_node = pe.Node(function.Function(input_names=['file_path',
                                                            'creds_path',
@@ -543,9 +549,13 @@ def create_general_datasource(wf_name):
                             name='check_for_s3')
     check_s3_node.inputs.img_type = "other"
 
+    print(f'{datetime.datetime.now().isoformat()} making connections {wf_name}')
+
     wf.connect(inputnode, 'data', check_s3_node, 'file_path')
     wf.connect(inputnode, 'creds_path', check_s3_node, 'creds_path')
     wf.connect(inputnode, 'dl_dir', check_s3_node, 'dl_dir')
+
+    print(f'{datetime.datetime.now().isoformat()} creaTING OUTPUT SPEC {wf_name}')
 
     outputnode = pe.Node(util.IdentityInterface(fields=['unique_id',
                                                         'data']),
@@ -553,6 +563,9 @@ def create_general_datasource(wf_name):
 
     wf.connect(inputnode, 'unique_id', outputnode, 'unique_id')
     wf.connect(check_s3_node, 'local_path', outputnode, 'data')
+
+    print(f'{datetime.datetime.now().isoformat()} finished {wf_name}')
+
 
     return wf
 

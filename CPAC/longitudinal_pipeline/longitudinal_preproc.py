@@ -133,8 +133,7 @@ def template_convergence(mat_file, mat_type='matrix',
 
 
 # CC remove skull functionality from here?
-def create_temporary_template(input_brain_list, input_skull_list, 
-                              output_brain_path, output_skull_path, avg_method='median'):
+def create_temporary_template(input_brain_list,  output_brain_path, avg_method='median'):
     """
     Average all the 3D images of the list into one 3D image
     WARNING---the function assumes that all the images have the same header,
@@ -144,12 +143,8 @@ def create_temporary_template(input_brain_list, input_skull_list,
     ----------
     input_brain_list : list[str]
         list of brain image paths
-    input_skull_list : list[str]
-        list of skull image paths
     output_brain_path : Nifti1Image
         temporary longitudinal brain template
-    output_skull_path : Nifti1Image
-        temporary longitudinal skull template
     avg_method : str
         function names from numpy library such as 'median', 'mean', 'std' ...
 
@@ -161,26 +156,21 @@ def create_temporary_template(input_brain_list, input_skull_list,
         temporary longitudinal skull template
     """
 
-    if not input_brain_list or not input_skull_list:
+    if not input_brain_list:
         raise ValueError('ERROR create_temporary_template: image list is empty')
 
-    if len(input_brain_list) == 1 and len(input_skull_list) == 1:
-        return input_brain_list[0], input_skull_list[0]
+    if len(input_brain_list) == 1:
+        return input_brain_list[0]
 
     # ALIGN CENTERS
     avg_brain_data = getattr(np, avg_method)(
         np.asarray([nifti_image_input(img).get_fdata() for img in input_brain_list]), 0)
 
-    avg_skull_data = getattr(np, avg_method)(
-        np.asarray([nifti_image_input(img).get_fdata() for img in input_skull_list]), 0)
-
     nii_brain = nib.Nifti1Image(avg_brain_data, nifti_image_input(input_brain_list[0]).affine)
-    nii_skull = nib.Nifti1Image(avg_skull_data, nifti_image_input(input_skull_list[0]).affine)
 
     nib.save(nii_brain, output_brain_path)
-    nib.save(nii_skull, output_skull_path)
 
-    return output_brain_path, output_skull_path
+    return output_brain_path
 
 
 def register_img_list(input_brain_list, ref_img, dof=12, interp='trilinear', cost='corratio',
@@ -385,9 +375,7 @@ def template_creation_flirt(input_brain_list, input_skull_list, init_reg=None, a
         # remove the skull functionality from here?
         temporary_brain_template, temporary_skull_template = create_temporary_template(
                                                 input_brain_list=output_brain_list,
-                                                input_skull_list=output_brain_list,
                                                 output_brain_path=temporary_brain_template,
-                                                output_skull_path=temporary_skull_template,
                                                 avg_method=avg_method)
         
         reg_list_node = register_img_list(input_brain_list=output_brain_list,

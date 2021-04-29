@@ -464,19 +464,27 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
         except KeyError:
             input_creds_path = None
 
-        # how could we build this as a tranche workflow?
+        print(f'{unique_id} figured out creds path {input_creds_path}')
+
         workflow = initialize_nipype_wf(config, session,
                                         # just grab the first one for the name
                                         name="anat_longitudinal_pre-preproc")
 
+        print(f'{unique_id} initialized workflow')
+
         workflow, rpool = initiate_rpool(workflow, config, session)
+
+        print(f'{unique_id} initiated rpool')
 
         pipeline_blocks = build_anat_preproc_stack(rpool, config)
         workflow = connect_pipeline(workflow, config, rpool, pipeline_blocks)
+        print(f'{unique_id} pipeline connected')
 
         session_wfs[unique_id] = rpool
 
         rpool.gather_pipes(workflow, config)
+        print(f'{unique_id} pipes gathered')
+
         print(f"adding {session['unique_id']} to the thread pool")
 
         if num_sessions_at_once > 1:
@@ -495,16 +503,12 @@ def anat_longitudinal_wf(subject_id, sub_list, config):
     for wf in running_workflows:
         # try:
         wf.result()
-        # done+=1
-        running_workflows.remove(wf)
-        # except TimeoutError:
-        #     print(f"{wf} workflow still running")
 
     running_workflows = []
 
     pool.shutdown()
 
-    return 1
+    raise NotImplementedError
 
     # TODO: It seems like we should be able to pull this from the
     # resource pool rather than searching the file paths

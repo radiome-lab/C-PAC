@@ -7,6 +7,8 @@ import logging
 import copy
 from unittest import TestCase
 
+import datetime
+
 from CPAC.pipeline import nipype_pipeline_engine as pe
 import nipype.interfaces.utility as util
 from nipype.interfaces.utility import Rename
@@ -1532,6 +1534,7 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
     # TODO: nah, even better: just loop through the config for .nii's
     # TODO: may want to change the resource keys for each to include one level up in the YAML as well
 
+    print(f'{datetime.datetime.now().isoformat()} starting ingress pipeconfig paths {unique_id}')
     templates_for_resampling = [
         (cfg.registration_workflows['anatomical_registration']['resolution_for_anat'], cfg.registration_workflows['anatomical_registration']['T1w_brain_template'], 'T1w_brain_template', 'resolution_for_anat'),
         (cfg.registration_workflows['anatomical_registration']['resolution_for_anat'], cfg.registration_workflows['anatomical_registration']['T1w_template'], 'T1w_template', 'resolution_for_anat'),
@@ -1553,12 +1556,18 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
         (cfg.registration_workflows['functional_registration']['func_registration_to_template']['output_resolution']['func_derivative_outputs'], cfg.registration_workflows['functional_registration']['func_registration_to_template']['target_template']['T1_template']['T1w_template_funcreg'], 'T1w_template_deriv', 'func_derivative_outputs')
     ]
 
+    print(f'{datetime.datetime.now().isoformat()} templates defined {unique_id}')
+
     if cfg.PyPEER['run']:
         templates_for_resampling.append((cfg.registration_workflows['functional_registration']['func_registration_to_template']['output_resolution']['func_preproc_outputs'], cfg.PyPEER['eye_mask_path'], 'template_eye_mask', 'func_preproc_outputs'))
         #Outputs.any.append("template_eye_mask")
 
     # update resampled template to resource pool
+    print(f'{datetime.datetime.now().isoformat()} going through {len(templates_for_resampling)} templates to resample')
+
     for resolution, template, template_name, tag in templates_for_resampling:
+
+        print(f'{datetime.datetime.now().isoformat()} starting to process {template} {tag}')
 
         if not template:
             continue
@@ -1574,6 +1583,8 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
         if '${func_resolution}' in template:
             template = template.replace('func_resolution', tag)
 
+        print(f'{datetime.datetime.now().isoformat()} finished conforming to {template}')
+
         resampled_template = pe.Node(Function(input_names=['resolution',
                                                            'template',
                                                            'template_name',
@@ -1588,6 +1599,8 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
         resampled_template.inputs.template_name = template_name
         resampled_template.inputs.tag = tag
 
+        print(f'{datetime.datetime.now().isoformat()} creating resample node for {template}')
+
         # the set_data below is set up a little differently, because we are
         # injecting and also over-writing already-existing entries
         #   other alternative would have been to ingress into the
@@ -1600,6 +1613,10 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
                        #f"['{template_name}:{template_name}_config_ingress']",
                        {}, "",
                        "template_resample") #, inject=True)   # pipe_idx (after the blank json {}) should be the previous strat that you want deleted! because you're not connecting this the regular way, you have to do it manually
+
+        print(f'{datetime.datetime.now().isoformat()} added to resource pool')
+
+    print(f'{datetime.datetime.now().isoformat()} done with resampling, move on to resource paths')
 
     config_resource_paths = [
         ('CSF_path', cfg.segmentation['tissue_segmentation']['FSL-FAST']['use_priors']['CSF_path']),
@@ -1638,12 +1655,18 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
         config_resource_paths.append(
             ('eye_mask_path', cfg.PyPEER['eye_mask_path']))
 
+    print(f'{datetime.datetime.now().isoformat()} starting to process {len(config_resource_paths)} resource paths')
+
     for resource in config_resource_paths:
         key = resource[0]
         val = resource[1]
 
+        print(f'{datetime.datetime.now().isoformat()} starting to process {key} {val}')
+
         if rpool.check_rpool(key):
             continue
+
+        print(f'{datetime.datetime.now().isoformat()} checked the pool')
 
         if not val:
             continue
@@ -1666,8 +1689,13 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
                 out_res = 'func_derivative_outputs'
             val = val.replace('${func_resolution}', cfg.registration_workflows['functional_registration']['func_registration_to_template']['output_resolution'][out_res])
 
+        print(f'{datetime.datetime.now().isoformat()} conformized to {val}')
+
         if val:
             config_ingress = create_general_datasource(f'gather_{key}')
+
+            print(f'{datetime.datetime.now().isoformat()} created general datasource for {val}')
+
             config_ingress.inputs.inputnode.set(
                 unique_id=unique_id,
                 data=val,
@@ -1676,6 +1704,10 @@ def ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path=None):
             )
             rpool.set_data(key, config_ingress, 'outputspec.data', {}, "",
                            f"{key}_config_ingress")
+
+            print(f'{datetime.datetime.now().isoformat()} created input node for {val}')
+
+    print(f'{datetime.datetime.now().isoformat()} done inserting resource input nodes')
 
     # templates, resampling from config
     '''
@@ -1786,6 +1818,8 @@ def initiate_rpool(wf, cfg, data_paths=None, part_id=None):
     # TODO: used for BIDS-Derivatives (below), and possible refactoring of
     # TODO: the raw data config to use 'T1w' label instead of 'anat' etc.
 
+    print(f'{datetime.datetime.now().isoformat()} called initiate rpool {wf} {len(data_paths)}')
+
     if data_paths:
         part_id = data_paths['subject_id']
         ses_id = data_paths['unique_id']
@@ -1800,21 +1834,33 @@ def initiate_rpool(wf, cfg, data_paths=None, part_id=None):
 
     rpool = ResourcePool(name=unique_id, cfg=cfg)
 
+    print(f'{datetime.datetime.now().isoformat()} finished initializing rpool')
+
     if data_paths:
+        print(f'{datetime.datetime.now().isoformat()} pulling in anat data')
+
         rpool = ingress_raw_anat_data(wf, rpool, cfg, data_paths, unique_id,
                                       part_id, ses_id)
+
+        print(f'{datetime.datetime.now().isoformat()} pulling in func data')
 
         wf, rpool, diff, blip, fmap_rp_list = \
             ingress_raw_func_data(wf, rpool, cfg, data_paths, unique_id,
                                   part_id, ses_id)
 
+    print(f'{datetime.datetime.now().isoformat()} finished ingressing raw data {unique_id}')
+
     # grab already-processed data from the output directory
     rpool = ingress_output_dir(cfg, rpool, unique_id, creds_path)
+
+    print(f'{datetime.datetime.now().isoformat()} finished ingressing output directory {unique_id}')
 
     # grab any file paths from the pipeline config YAML
     rpool = ingress_pipeconfig_paths(cfg, rpool, unique_id, creds_path)
 
-    return (wf, rpool)
+    print(f'{datetime.datetime.now().isoformat()} finished ingressing pipeconfig paths? {unique_id}')
+
+    return wf, rpool
 
 
 def run_node_blocks(blocks, data_paths, cfg=None):

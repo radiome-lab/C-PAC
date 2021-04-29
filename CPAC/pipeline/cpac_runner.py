@@ -393,6 +393,7 @@ def run(subject_list_file, config_file=None, p_name=None, plugin=None,
 
             run_T1w_longitudinal(sublist, c)
             # TODO functional longitudinal pipeline
+            return 1
 
         '''
             if valid_longitudinal_data:
